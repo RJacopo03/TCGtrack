@@ -26,7 +26,12 @@ with tab1:
                 st.success("Salvato su Google Sheets!")
 
 with tab2:
-    st.write("La tua collezione dal database:")
-    # Invece di conn.read(worksheet="Foglio1") prova così:
-    df_collezione = conn.read(spreadsheet=st.secrets["connections"]["gsheets"]["spreadsheet"], worksheet="Foglio1")
-    st.dataframe(df_collezione)
+    st.write("Caricamento collezione...")
+    try:
+        # Tentiamo la lettura in modo esplicito
+        df = conn.read(worksheet="Foglio1")
+        st.dataframe(df)
+    except Exception as e:
+        st.error("Impossibile leggere il foglio.")
+        st.write("Dettaglio errore:", e)
+        st.info("Assicurati che il file non sia vuoto e che la prima riga contenga le intestazioni (Nome, Set, ecc.)")
