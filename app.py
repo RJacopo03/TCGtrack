@@ -27,5 +27,6 @@ with tab1:
 
 with tab2:
     st.write("La tua collezione dal database:")
-    df_collezione = conn.read(worksheet="Foglio1")
+    # Invece di conn.read(worksheet="Foglio1") prova così:
+    df_collezione = conn.read(spreadsheet=st.secrets["connections"]["gsheets"]["spreadsheet"], worksheet="Foglio1")
     st.dataframe(df_collezione)
