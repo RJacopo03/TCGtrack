@@ -3,90 +3,62 @@ import requests
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# 1. Configurazione Pagina
-st.set_page_config(page_title="TCGtrack", page_icon="🃏", layout="wide")
+st.set_page_config(page_title="Pokécardex", page_icon="🃏", layout="centered")
 
+# --- CSS per stile Pokecardex ---
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 20px; }
-    .card-container { border: 1px solid #ddd; padding: 10px; border-radius: 10px; text-align: center; }
+    .card-box { background-color: #f0f2f6; padding: 10px; border-radius: 10px; margin-bottom: 10px; }
+    div.stButton > button { width: 100%; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Connessione Database
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 3. Funzioni con Caching (per velocità)
+# --- FUNZIONI ---
 @st.cache_data(ttl=3600)
-def get_all_sets():
+def get_sets():
     r = requests.get("https://api.pokemontcg.io/v2/sets")
-    return sorted(r.json()['data'], key=lambda x: x['releaseDate'], reverse=True)
-
-@st.cache_data(ttl=3600)
-def get_cards_by_set(set_id):
-    r = requests.get(f"https://api.pokemontcg.io/v2/cards?q=set.id:{set_id}")
     return r.json()['data']
 
-# 4. Navigazione
-tab_esplora, tab_collezione = st.tabs(["📚 Esplora Set", "🎒 La mia Collezione"])
-
-# --- TAB ESPLORA (Stile Pokécardex) ---
-with tab_esplora:
-    sets = get_all_sets()
-    set_names = [s['name'] for s in sets]
-    selected_set_name = st.selectbox("Seleziona un Set Pokémon:", set_names)
-    
-    selected_set = next(s for s in sets if s['name'] == selected_set_name)
-    st.image(selected_set['images']['logo'], width=200)
-    
-    cards = get_cards_by_set(selected_set['id'])
-    
-    # Carichiamo la collezione per vedere cosa abbiamo già
+def load_collection():
     try:
-        current_coll = conn.read(worksheet="Collezione")
-        owned_ids = current_coll['ID_Carta'].tolist()
+        return conn.read(worksheet="Collezione")
     except:
-        owned_ids = []
+        return pd.DataFrame(columns=["Nome", "Set", "ID_Carta", "Immagine"])
 
-    st.write(f"### Carte del set: {selected_set_name} ({len(cards)} carte)")
+# --- INTERFACCIA ---
+st.title("🃏 Pokécardex")
+tab1, tab2 = st.tabs(["ESPLORA", "COLLEZIONE"])
+
+with tab1:
+    sets = get_sets()
+    set_choice = st.selectbox("Seleziona Set", [s['name'] for s in sets])
+    selected_set = next(s for s in sets if s['name'] == set_choice)
     
-    # Griglia a 3 colonne per mobile/desktop
-    cols = st.columns(3)
-    for idx, card in enumerate(cards):
-        with cols[idx % 3]:
-            st.image(card['images']['small'])
-            is_owned = card['id'] in owned_ids
+    cards = requests.get(f"https://api.pokemontcg.io/v2/cards?q=set.id:{selected_set['id']}").json()['data']
+    
+    coll = load_collection()
+    
+    for card in cards:
+        with st.container():
+            col1, col2 = st.columns([1, 3])
+            col1.image(card['images']['small'], width=80)
+            col2.write(f"**")
             
-            label = "✅ Posseduta" if is_owned else "➕ Aggiungi"
-            if st.button(label, key=card['id'], disabled=is_owned):
-                new_row = pd.DataFrame([{
-                    "Nome": card['name'],
-                    "Set": selected_set_name,
-                    "ID_Carta": card['id'],
-                    "Immagine": card['images']['small']
-                }])
-                try:
-                    # Leggi, aggiungi e aggiorna
-                    df_old = conn.read(worksheet="Collezione")
-                    df_new = pd.concat([df_old, new_row], ignore_index=True)
-                    conn.update(worksheet="Collezione", data=df_new)
-                    st.toast(f"{card['name']} aggiunta!")
+            is_owned = card['id'] in coll['ID_Carta'].values
+            if is_owned:
+                col2.success("✅ Posseduta")
+            else:
+                if col2.button("➕ Aggiungi", key=card['id']):
+                    new_df = pd.concat([coll, pd.DataFrame([{
+                        "Nome": card['name'], "Set": set_choice, 
+                        "ID_Carta": card['id'], "Immagine": card['images']['small']
+                    }])], ignore_index=True)
+                    conn.update(worksheet="Collezione", data=new_df)
                     st.rerun()
-                except Exception as e:
-                    st.error("Errore nel salvataggio. Verifica i Secrets.")
 
-# --- TAB COLLEZIONE ---
-with tab_collezione:
-    st.header("La tua raccolta")
-    try:
-        df = conn.read(worksheet="Collezione")
-        if df.empty:
-            st.info("La tua collezione è ancora vuota. Inizia ad aggiungere carte!")
-        else:
-            # Mostra la collezione in griglia
-            c_cols = st.columns(4)
-            for i, row in df.iterrows():
-                with c_cols[i % 4]:
-                    st.image(row['Immagine'], caption=row['Nome'])
-    except:
-        st.warning("Configura il database nei Secrets di Streamlit.")
+with tab2:
+    st.subheader("La tua raccolta")
+    df = load_collection()
+    st.dataframe(df[['Nome', 'Set']], use_container_width=True)
