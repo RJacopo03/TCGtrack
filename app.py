@@ -2,36 +2,56 @@ import streamlit as st
 import requests
 from streamlit_gsheets import GSheetsConnection
 
+# Configurazione Pagina
 st.set_page_config(page_title="TCGtrack", layout="centered")
+st.title("🃏 TCGtrack")
 
 # Connessione a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-st.title("🃏 TCGtrack Pro")
+# --- FUNZIONI API ---
+def get_sets():
+    response = requests.get("https://api.pokemontcg.io/v2/sets")
+    return response.json().get("data", [])
 
-tab1, tab2 = st.tabs(["🔍 Cerca", "📁 Collezione"])
+def get_cards_by_set(set_id):
+    # L'API filtra le carte per il set scelto
+    url = f"https://api.pokemontcg.io/v2/cards?q=set.id:{set_id}"
+    response = requests.get(url)
+    return response.json().get("data", [])
 
-with tab1:
-    query = st.text_input("Cerca Pokémon")
-    if query:
-        res = requests.get(f"https://api.pokemontcg.io/v2/cards?q=name:{query}*&pageSize=5")
-        cards = res.json().get('data', [])
-        for c in cards:
-            st.image(c['images']['small'], width=100)
-            st.write(f"**{c['name']}**")
-            if st.button(f"Salva {c['name']}", key=c['id']):
-                # Salva su Google Sheets
-                df = pd.DataFrame([{"Nome": c['name'], "Set": c['set']['name'], "Tipo": "Singola", "Prezzo": 0}])
-                conn.update(worksheet="Foglio1", data=df)
-                st.success("Salvato su Google Sheets!")
+# --- INTERFACCIA ---
+menu = st.sidebar.radio("Navigazione", ["Cerca Carte", "I Miei Set"])
 
-with tab2:
-    st.write("Caricamento collezione...")
+if menu == "Cerca Carte":
+    st.header("Esplora i Set")
+    sets = get_sets()
+    
+    # Creiamo un dizionario per avere nome set -> id set
+    set_map = {s['name']: s['id'] for s in sets}
+    selected_set_name = st.selectbox("Seleziona un set:", list(set_map.keys()))
+    
+    if selected_set_name:
+        set_id = set_map[selected_set_name]
+        cards = get_cards_by_set(set_id)
+        
+        st.write(f"### Carte in {selected_set_name}")
+        for card in cards:
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                st.image(card['images']['small'], width=100)
+            with col2:
+                st.write(f"**")
+                if st.button(f"Aggiungi {card['name']}", key=card['id']):
+                    # Logica per scrivere su Google Sheets
+                    new_data = {"Nome": card['name'], "Set": selected_set_name}
+                    # ... qui inserisci la logica per aggiungere al DF e salvare ...
+                    st.success("Aggiunta!")
+
+elif menu == "I Miei Set":
+    st.header("La mia Collezione")
     try:
-        # Tentiamo la lettura in modo esplicito
         df = conn.read(worksheet="Foglio1")
         st.dataframe(df)
-    except Exception as e:
-        st.error("Impossibile leggere il foglio.")
-        st.write("Dettaglio errore:", e)
-        st.info("Assicurati che il file non sia vuoto e che la prima riga contenga le intestazioni (Nome, Set, ecc.)")
+    except:
+        st.error("Collega il foglio Google Sheets nei Secrets!")
